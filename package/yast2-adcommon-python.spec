@@ -32,6 +32,7 @@ Requires:       yast2
 Requires:       yast2-python3-bindings >= 4.0.0
 Requires:       python3-ldap
 BuildRequires:	python3
+BuildRequires:	python3-setuptools
 
 %description
 Common code shared by the yast2-aduc, yast2-adsi, and yast2-gpmc modules.

@@ -4,7 +4,7 @@ from yast import *
 from subprocess import Popen, PIPE
 from samba.credentials import Credentials, MUST_USE_KERBEROS
 import re, six
-from strings import strcasecmp
+from adcommon.strings import strcasecmp
 
 def kinit_for_gssapi(creds, realm):
     p = Popen(['kinit', '%s@%s' % (creds.get_username(), realm) if not realm in creds.get_username() else creds.get_username()], stdin=PIPE, stdout=PIPE)

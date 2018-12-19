@@ -7,8 +7,8 @@ from yast import ycpbuiltins, import_module
 import_module('UI')
 from yast import UI
 from samba.credentials import MUST_USE_KERBEROS
-from creds import kinit_for_gssapi
-from strings import strcmp
+from adcommon.creds import kinit_for_gssapi
+from adcommon.strings import strcmp
 from samba.net import Net
 from samba.dcerpc import nbt
 

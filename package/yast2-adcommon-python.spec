@@ -17,7 +17,7 @@
 
 
 Name:           yast2-adcommon-python
-Version:        1.0
+Version:        0.2
 Release:        0
 Summary:        Common code for the yast python ad modules
 License:        GPL-3.0+
@@ -43,12 +43,14 @@ Common code shared by the yast2-aduc, yast2-adsi, and yast2-gpmc modules.
 %build
 
 %install
-./setup.py install
+./setup.py install --no-compile --single-version-externally-managed --root=$RPM_BUILD_ROOT
+rm -rf $RPM_BUILD_ROOT/%{python3_sitelib}/adcommon-*.egg-info
 
 %clean
-%{__rm} -rf $RPM_BUILD_ROOT
 
 %files
 %defattr(-,root,root)
+%dir %{python3_sitelib}/adcommon
+%{python3_sitelib}/adcommon/*
 
 %changelog

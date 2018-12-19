@@ -3,14 +3,34 @@ import_module('UI')
 from yast import *
 from subprocess import Popen, PIPE
 from samba.credentials import Credentials, MUST_USE_KERBEROS
-import re, six
+import re, six, os
 from strings import strcasecmp
+from tempfile import NamedTemporaryFile
+
+def krb5_basic_conf(realm):
+    with NamedTemporaryFile(mode='w', delete=False) as f:
+        f.write('[libdefaults]\n')
+        f.write('\tdns_lookup_realm = false\n')
+        f.write('\tdns_lookup_kdc = true\n')
+        f.write('\tclockskew = 300\n')
+        f.write('\tticket_lifetime = 1d\n')
+        f.write('\tforwardable = true\n')
+        f.write('\tproxiable = true\n')
+        f.write('\tdns_lookup_realm = true\n')
+        f.write('\tdns_lookup_kdc = true\n')
+        f.write('\tdefault_realm = %s\n' % realm.upper())
+        return f.name
 
 def kinit_for_gssapi(creds, realm):
-    p = Popen(['kinit', '%s@%s' % (creds.get_username(), realm) if not realm in creds.get_username() else creds.get_username()], stdin=PIPE, stdout=PIPE)
+    tmp_krb5_conf = krb5_basic_conf(realm)
+    env = os.environ.copy()
+    env['KRB5_CONFIG'] = tmp_krb5_conf
+    p = Popen(['kinit', '%s@%s' % (creds.get_username(), realm) if not realm in creds.get_username() else creds.get_username()], stdin=PIPE, stdout=PIPE, env=env)
     p.stdin.write(('%s\n' % creds.get_password()).encode())
     p.stdin.flush()
-    return p.wait() == 0
+    ret = p.wait() == 0
+    os.remove(tmp_krb5_conf)
+    return ret
 
 class YCreds:
     def __init__(self, creds):

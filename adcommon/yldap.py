@@ -7,10 +7,11 @@ from yast import ycpbuiltins, import_module
 import_module('UI')
 from yast import UI
 from samba.credentials import MUST_USE_KERBEROS
-from creds import kinit_for_gssapi
+from creds import kinit_for_gssapi, krb5_basic_conf
 from strings import strcmp
 from samba.net import Net
 from samba.dcerpc import nbt
+import os
 
 import six
 
@@ -93,11 +94,14 @@ class Ldap:
         self.net = Net(creds=self.creds, lp=self.lp)
         cldap_ret = self.net.finddc(domain=self.realm, flags=(nbt.NBT_SERVER_LDAP | nbt.NBT_SERVER_DS))
         self.l = ldap.initialize('ldap://%s' % cldap_ret.pdc_dns_name)
+        os.environ['KRB5_CONFIG'] = krb5_basic_conf(self.realm)
         if self.creds.get_kerberos_state() == MUST_USE_KERBEROS or kinit_for_gssapi(self.creds, self.realm):
             auth_tokens = ldap.sasl.gssapi('')
             self.l.sasl_interactive_bind_s('', auth_tokens)
         else:
             ycpbuiltins.y2error('Failed to initialize ldap connection')
+        os.remove(os.environ['KRB5_CONFIG'])
+        os.environ['KRB5_CONFIG'] = ''
 
     def ldap_search_s(self, *args):
         try:

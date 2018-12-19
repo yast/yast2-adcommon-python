@@ -92,7 +92,8 @@ class Ldap:
     def __ldap_connect(self):
         self.net = Net(creds=self.creds, lp=self.lp)
         cldap_ret = self.net.finddc(domain=self.realm, flags=(nbt.NBT_SERVER_LDAP | nbt.NBT_SERVER_DS))
-        self.l = ldap.initialize('ldap://%s' % cldap_ret.pdc_dns_name)
+        self.dc_hostname = cldap_ret.pdc_dns_name
+        self.l = ldap.initialize('ldap://%s' % self.dc_hostname)
         if self.creds.get_kerberos_state() == MUST_USE_KERBEROS or kinit_for_gssapi(self.creds, self.realm):
             auth_tokens = ldap.sasl.gssapi('')
             self.l.sasl_interactive_bind_s('', auth_tokens)

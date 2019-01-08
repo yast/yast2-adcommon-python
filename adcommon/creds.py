@@ -22,10 +22,6 @@ class YCreds:
             self.creds.set_password('')
         self.retry = True
         if not self.creds.get_password():
-            if self.creds.get_username():
-                self.__validate_kinit()
-                if self.creds.get_kerberos_state() == MUST_USE_KERBEROS:
-                    return True
             UI.SetApplicationTitle('Authenticate')
             UI.OpenDialog(self.__password_prompt(self.creds.get_username()))
             while True:
@@ -49,13 +45,6 @@ class YCreds:
                 if str(subret) == 'creds_cancel':
                     UI.CloseDialog()
                     return False
-                if str(subret) == 'username_prompt':
-                    user = UI.QueryWidget('username_prompt', 'Value')
-                    self.creds.set_username(user)
-                    self.__validate_kinit()
-                    if self.creds.get_kerberos_state() == MUST_USE_KERBEROS:
-                        UI.CloseDialog()
-                        return True
         return True
 
     def __validate_kinit(self):
@@ -98,7 +87,7 @@ class YCreds:
             VSpacing(.5),
             Left(Label('To continue, type an administrator password')),
             Frame('', VBox(
-                Left(TextEntry(Id('username_prompt'), Opt('hstretch', 'notify'), 'Username', user)),
+                Left(TextEntry(Id('username_prompt'), Opt('hstretch'), 'Username', user)),
                 Left(Password(Id('password_prompt'), Opt('hstretch'), 'Password')),
             )),
             krb_selection,

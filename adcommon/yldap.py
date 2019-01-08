@@ -99,6 +99,7 @@ class Ldap:
             self.l.sasl_interactive_bind_s('', auth_tokens)
         else:
             ycpbuiltins.y2error('Failed to initialize ldap connection')
+            raise Exception('Failed to initialize ldap connection')
 
     def ldap_search_s(self, *args):
         try:

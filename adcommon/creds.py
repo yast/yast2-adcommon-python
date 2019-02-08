@@ -13,8 +13,9 @@ def kinit_for_gssapi(creds, realm):
     return p.wait() == 0
 
 class YCreds:
-    def __init__(self, creds):
+    def __init__(self, creds, auto_krb5_creds=True):
         self.creds = creds
+        self.auto_krb5_creds = auto_krb5_creds
         self.retry = False
 
     def get_creds(self):
@@ -22,10 +23,6 @@ class YCreds:
             self.creds.set_password('')
         self.retry = True
         if not self.creds.get_password():
-            if self.creds.get_username():
-                self.__validate_kinit()
-                if self.creds.get_kerberos_state() == MUST_USE_KERBEROS:
-                    return True
             UI.SetApplicationTitle('Authenticate')
             UI.OpenDialog(self.__password_prompt(self.creds.get_username()))
             while True:
@@ -49,13 +46,6 @@ class YCreds:
                 if str(subret) == 'creds_cancel':
                     UI.CloseDialog()
                     return False
-                if str(subret) == 'username_prompt':
-                    user = UI.QueryWidget('username_prompt', 'Value')
-                    self.creds.set_username(user)
-                    self.__validate_kinit()
-                    if self.creds.get_kerberos_state() == MUST_USE_KERBEROS:
-                        UI.CloseDialog()
-                        return True
         return True
 
     def __validate_kinit(self):
@@ -82,23 +72,22 @@ class YCreds:
         return user, realm, expired
 
     def __password_prompt(self, user):
-        krb_user, krb_realm, krb_expired = self.__recommend_user()
-        if krb_user and not krb_expired:
-            krb_selection = Frame('', VBox(
-                VSpacing(.5),
-                Left(PushButton(Id('krb_select'), Opt('hstretch', 'vstretch'), krb_user)),
-                Left(Label(b'Realm: %s' % krb_realm))
-            ))
-        elif krb_user and krb_expired:
-            user = krb_user
-            krb_selection = Empty()
-        else:
-            krb_selection = Empty()
+        krb_selection = Empty()
+        if self.auto_krb5_creds:
+            krb_user, krb_realm, krb_expired = self.__recommend_user()
+            if krb_user and not krb_expired:
+                krb_selection = Frame('', VBox(
+                    VSpacing(.5),
+                    Left(PushButton(Id('krb_select'), Opt('hstretch', 'vstretch'), krb_user)),
+                    Left(Label(b'Realm: %s' % krb_realm))
+                ))
+            elif krb_user and krb_expired:
+                user = krb_user
         return MinWidth(30, HBox(HSpacing(1), VBox(
             VSpacing(.5),
             Left(Label('To continue, type an administrator password')),
             Frame('', VBox(
-                Left(TextEntry(Id('username_prompt'), Opt('hstretch', 'notify'), 'Username', user)),
+                Left(TextEntry(Id('username_prompt'), Opt('hstretch'), 'Username', user)),
                 Left(Password(Id('password_prompt'), Opt('hstretch'), 'Password')),
             )),
             krb_selection,

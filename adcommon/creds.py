@@ -5,6 +5,7 @@ from subprocess import Popen, PIPE
 from samba.credentials import Credentials, MUST_USE_KERBEROS
 import re, six
 from adcommon.strings import strcasecmp
+import keyring
 
 def kinit_for_gssapi(creds, realm):
     p = Popen(['kinit', '%s@%s' % (creds.get_username(), realm) if not realm in creds.get_username() else creds.get_username()], stdin=PIPE, stdout=PIPE)
@@ -30,9 +31,14 @@ class YCreds:
                 if str(subret) == 'creds_ok':
                     user = UI.QueryWidget('username_prompt', 'Value')
                     password = UI.QueryWidget('password_prompt', 'Value')
+                    save = UI.QueryWidget('remember_prompt', 'Value')
                     UI.CloseDialog()
                     if not password:
                         return False
+                    if save:
+                        self.__set_keyring(user, password)
+                    else:
+                        self.__delete_keyring()
                     self.creds.set_username(user)
                     self.creds.set_password(password)
                     return True
@@ -71,24 +77,55 @@ class YCreds:
         user, realm = m[0]
         return user, realm, expired
 
+    def __set_keyring(self, user, password):
+        keyring.set_password('adcommon', 'username', user)
+        keyring.set_password('adcommon', user, password)
+
+    def __delete_keyring(self):
+        keyring_user = keyring.get_password('adcommon', 'username')
+        try:
+            keyring.delete_password('adcommon', 'username')
+        except keyring.errors.PasswordDeleteError:
+            pass
+        try:
+            keyring.delete_password('adcommon', keyring_user)
+        except keyring.errors.PasswordDeleteError:
+            pass
+
+    def __get_keyring(self, user):
+        password = None
+        keyring_user = keyring.get_password('adcommon', 'username')
+        if keyring_user:
+            user = keyring_user
+        if user:
+            password = keyring.get_password('adcommon', user)
+        if not user:
+            user = ''
+        if not password:
+            password = ''
+        return user, password
+
     def __password_prompt(self, user):
+        user, password = self.__get_keyring(user)
         krb_selection = Empty()
         if self.auto_krb5_creds:
             krb_user, krb_realm, krb_expired = self.__recommend_user()
-            if krb_user and not krb_expired:
-                krb_selection = Frame('', VBox(
-                    VSpacing(.5),
-                    Left(PushButton(Id('krb_select'), Opt('hstretch', 'vstretch'), krb_user)),
-                    Left(Label(b'Realm: %s' % krb_realm))
-                ))
-            elif krb_user and krb_expired:
-                user = krb_user
+            if not (strcasecmp(user, krb_user) and password):
+                if krb_user and not krb_expired:
+                    krb_selection = Frame('', VBox(
+                        VSpacing(.5),
+                        Left(PushButton(Id('krb_select'), Opt('hstretch', 'vstretch'), krb_user)),
+                        Left(Label(b'Domain: %s' % krb_realm))
+                    ))
+                elif krb_user and krb_expired:
+                    user = krb_user
         return MinWidth(30, HBox(HSpacing(1), VBox(
             VSpacing(.5),
             Left(Label('To continue, type an administrator password')),
             Frame('', VBox(
                 Left(TextEntry(Id('username_prompt'), Opt('hstretch'), 'Username', user)),
-                Left(Password(Id('password_prompt'), Opt('hstretch'), 'Password')),
+                Left(Password(Id('password_prompt'), Opt('hstretch'), 'Password', password)),
+                Left(CheckBox(Id('remember_prompt'), 'Remember my credentials', True if user and password else False)),
             )),
             krb_selection,
             Right(HBox(

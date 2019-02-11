@@ -15,3 +15,6 @@ def strcasecmp(first, second):
         if isinstance(second, six.string_types):
             second = six.binary_type(second, 'utf8')
     return first.lower() == second.lower()
+
+def strncasecmp(first, second, n):
+    return strcasecmp(first[:n], second[:n])

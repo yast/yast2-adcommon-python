@@ -4,11 +4,29 @@ from yast import *
 from subprocess import Popen, PIPE
 from samba.credentials import Credentials, MUST_USE_KERBEROS
 import re, six
-from adcommon.strings import strcasecmp
+from adcommon.strings import strcasecmp, strncasecmp
 import keyring
+from samba.net import Net
+from samba.credentials import Credentials
+from samba.dcerpc import nbt
+from shutil import which
+
+def __format_username(username, realm):
+    dom, user = ('', '')
+    if '\\' in username:
+        dom, user = username.split('\\')
+    elif '@' in username:
+        user, dom = username.split('@')
+    else:
+        dom, user = (realm, username)
+    net = Net(Credentials())
+    cldap_ret = net.finddc(domain=dom, flags=(nbt.NBT_SERVER_LDAP | nbt.NBT_SERVER_DS))
+    if cldap_ret:
+        dom = cldap_ret.dns_domain
+    return '%s@%s' % (user, dom.upper())
 
 def kinit_for_gssapi(creds, realm):
-    p = Popen(['kinit', '%s@%s' % (creds.get_username(), realm) if not realm in creds.get_username() else creds.get_username()], stdin=PIPE, stdout=PIPE)
+    p = Popen([which('kinit'), __format_username(creds.get_username(), realm)], stdin=PIPE, stdout=PIPE)
     p.stdin.write(('%s\n' % creds.get_password()).encode())
     p.stdin.flush()
     return p.wait() == 0
@@ -52,6 +70,15 @@ class YCreds:
                 if str(subret) == 'creds_cancel':
                     UI.CloseDialog()
                     return False
+                if str(subret) == 'username_prompt':
+                    user = UI.QueryWidget('username_prompt', 'Value')
+                    dom = ''
+                    if '\\' in user:
+                        dom, user = user.split('\\')
+                    elif '@' in user:
+                        user, dom = user.split('@')
+                    UI.ChangeWidget('domain', 'Value', dom)
+                    continue
         return True
 
     def __validate_kinit(self):
@@ -107,10 +134,15 @@ class YCreds:
 
     def __password_prompt(self, user):
         user, password = self.__get_keyring(user)
+        disp_user, dom = (user, '')
+        if '\\' in user:
+            dom, disp_user = user.split('\\')
+        elif '@' in user:
+            disp_user, dom = user.split('@')
         krb_selection = Empty()
         if self.auto_krb5_creds:
             krb_user, krb_realm, krb_expired = self.__recommend_user()
-            if not (strcasecmp(user, krb_user) and password):
+            if not (strcasecmp(disp_user, krb_user) and strncasecmp(dom, krb_realm, min(len(dom), len(krb_realm))) and password):
                 if krb_user and not krb_expired:
                     krb_selection = Frame('', VBox(
                         VSpacing(.5),
@@ -123,8 +155,12 @@ class YCreds:
             VSpacing(.5),
             Left(Label('To continue, type an administrator password')),
             Frame('', VBox(
-                Left(TextEntry(Id('username_prompt'), Opt('hstretch'), 'Username', user)),
+                Left(TextEntry(Id('username_prompt'), Opt('hstretch', 'notify'), 'Username', user)),
                 Left(Password(Id('password_prompt'), Opt('hstretch'), 'Password', password)),
+                HBox(
+                    HWeight(1, Left(Label('Domain:'))),
+                    HWeight(4, Left(Label(Id('domain'), Opt('hstretch'), dom))),
+                ),
                 Left(CheckBox(Id('remember_prompt'), 'Remember my credentials', True if user and password else False)),
             )),
             krb_selection,

@@ -11,14 +11,16 @@ from samba.credentials import Credentials
 from samba.dcerpc import nbt
 from shutil import which
 
-def __format_username(username, realm):
-    dom, user = ('', '')
+def parse_username(username, domain=''):
+    dom, user = (domain, username)
     if '\\' in username:
         dom, user = username.split('\\')
     elif '@' in username:
         user, dom = username.split('@')
-    else:
-        dom, user = (realm, username)
+    return dom, user
+
+def __format_username(username, realm):
+    dom, user = parse_username(username, realm)
     net = Net(Credentials())
     cldap_ret = net.finddc(domain=dom, flags=(nbt.NBT_SERVER_LDAP | nbt.NBT_SERVER_DS))
     if cldap_ret:
@@ -37,6 +39,19 @@ class YCreds:
         self.auto_krb5_creds = auto_krb5_creds
         self.retry = False
 
+    def Show(self, cred_valid=None):
+        '''Show the Credentials Dialog
+        param condition     A function pointer to call which checks if the creds are valid
+        return bool
+        '''
+        got_creds = self.get_creds()
+        while got_creds:
+            if cred_valid and not cred_valid():
+                got_creds = self.get_creds()
+                continue
+            break
+        return got_creds
+
     def get_creds(self):
         if self.retry:
             self.creds.set_password('')
@@ -48,13 +63,16 @@ class YCreds:
                 subret = UI.UserInput()
                 if str(subret) == 'creds_ok':
                     user = UI.QueryWidget('username_prompt', 'Value')
+                    dom, user = parse_username(user)
+                    if not dom:
+                        dom = UI.QueryWidget('domain', 'Value')
                     password = UI.QueryWidget('password_prompt', 'Value')
                     save = UI.QueryWidget('remember_prompt', 'Value')
                     UI.CloseDialog()
                     if not password:
                         return False
                     if save:
-                        self.__set_keyring(user, password)
+                        self.__set_keyring(user, dom, password)
                     else:
                         self.__delete_keyring()
                     self.creds.set_username(user)
@@ -72,11 +90,7 @@ class YCreds:
                     return False
                 if str(subret) == 'username_prompt':
                     user = UI.QueryWidget('username_prompt', 'Value')
-                    dom = ''
-                    if '\\' in user:
-                        dom, user = user.split('\\')
-                    elif '@' in user:
-                        user, dom = user.split('@')
+                    dom, user = parse_username(user)
                     UI.ChangeWidget('domain', 'Value', dom)
                     continue
         return True
@@ -104,8 +118,9 @@ class YCreds:
         user, realm = m[0]
         return user, realm, expired
 
-    def __set_keyring(self, user, password):
+    def __set_keyring(self, user, dom, password):
         keyring.set_password('adcommon', 'username', user)
+        keyring.set_password('adcommon', 'domain', dom)
         keyring.set_password('adcommon', user, password)
 
     def __delete_keyring(self):
@@ -115,34 +130,37 @@ class YCreds:
         except keyring.errors.PasswordDeleteError:
             pass
         try:
+            keyring.delete_password('adcommon', 'domain')
+        except keyring.errors.PasswordDeleteError:
+            pass
+        try:
             keyring.delete_password('adcommon', keyring_user)
         except keyring.errors.PasswordDeleteError:
             pass
 
     def __get_keyring(self, user):
+        dom = None
         password = None
         keyring_user = keyring.get_password('adcommon', 'username')
         if keyring_user:
             user = keyring_user
         if user:
+            dom = keyring.get_password('adcommon', 'domain')
             password = keyring.get_password('adcommon', user)
         if not user:
             user = ''
         if not password:
             password = ''
-        return user, password
+        if not dom:
+            dom = ''
+        return user, dom, password
 
     def __password_prompt(self, user):
-        user, password = self.__get_keyring(user)
-        disp_user, dom = (user, '')
-        if '\\' in user:
-            dom, disp_user = user.split('\\')
-        elif '@' in user:
-            disp_user, dom = user.split('@')
+        user, dom, password = self.__get_keyring(user)
         krb_selection = Empty()
         if self.auto_krb5_creds:
             krb_user, krb_realm, krb_expired = self.__recommend_user()
-            if not (strcasecmp(disp_user, krb_user) and strncasecmp(dom, krb_realm, min(len(dom), len(krb_realm))) and password):
+            if not (strcasecmp(user, krb_user) and strncasecmp(dom, krb_realm, min(len(dom), len(krb_realm))) and password):
                 if krb_user and not krb_expired:
                     krb_selection = Frame('', VBox(
                         VSpacing(.5),

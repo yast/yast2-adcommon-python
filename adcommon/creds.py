@@ -10,6 +10,12 @@ from samba.net import Net
 from samba.credentials import Credentials
 from samba.dcerpc import nbt
 from shutil import which
+from samba import NTSTATUSError
+
+def __validate_dom(dom):
+    net = Net(Credentials())
+    cldap_ret = net.finddc(domain=dom, flags=(nbt.NBT_SERVER_LDAP | nbt.NBT_SERVER_DS))
+    return cldap_ret.dns_domain if cldap_ret else None
 
 def parse_username(username, domain=''):
     dom, user = (domain, username)
@@ -21,10 +27,8 @@ def parse_username(username, domain=''):
 
 def __format_username(username, realm):
     dom, user = parse_username(username, realm)
-    net = Net(Credentials())
-    cldap_ret = net.finddc(domain=dom, flags=(nbt.NBT_SERVER_LDAP | nbt.NBT_SERVER_DS))
-    if cldap_ret:
-        dom = cldap_ret.dns_domain
+    cldap_dom = __validate_dom(dom)
+    dom = cldap_dom if dom else dom
     return '%s@%s' % (user, dom.upper())
 
 def kinit_for_gssapi(creds, realm):
@@ -32,6 +36,60 @@ def kinit_for_gssapi(creds, realm):
     p.stdin.write(('%s\n' % creds.get_password()).encode())
     p.stdin.flush()
     return p.wait() == 0
+
+def __msg(msg):
+    UI.OpenDialog(Opt('warncolor'), MinWidth(30, HBox(HSpacing(1), VBox(
+        VSpacing(0.5),
+        Label(msg),
+        VSpacing(0.5),
+        Right(PushButton(Id('id_ok'), 'OK')),
+        VSpacing(0.5),
+    ), HSpacing(1))))
+    UI.UserInput()
+    UI.CloseDialog()
+
+def switch_domains(lp, creds, cred_valid):
+    '''Change domains and set the new lp and creds
+    param LoadParm      Instance of samba LoadParm
+    param Credentials   Instance of samba Credentials
+    param condition     A function pointer to call which checks if the creds are valid
+    return bool
+    '''
+    UI.SetApplicationTitle('Change domain')
+    dialog = HBox(HSpacing(1), VBox(
+        VSpacing(0.5),
+        HBox(
+            HWeight(1, Left(Label('Domain:'))),
+            HWeight(4, Left(TextEntry(Id('domain'), Opt('hstretch'), lp.get('realm')))),
+        ),
+        VSpacing(0.5),
+        Right(HBox(
+            PushButton(Id('id_ok'), 'OK'),
+            PushButton(Id('id_cancel'), 'Cancel'),
+        )),
+        VSpacing(0.5),
+    ), HSpacing(1))
+    UI.OpenDialog(dialog)
+    res = False
+    while True:
+        ret = UI.UserInput()
+        if str(ret) == 'id_ok':
+            msg = ''
+            try:
+                dom = __validate_dom(UI.QueryWidget('domain', 'Value'))
+            except NTSTATUSError as e:
+                msg = e.args[-1]
+            if not dom:
+                __msg('The domain %s could not be found%s' % (UI.QueryWidget('domain', 'Value'), ' because:\n%s' % msg if msg else '.'))
+            else:
+                lp.set('realm', dom.upper())
+                ycred = YCreds(creds, auto_krb5_creds=False)
+                res = ycred.Show(cred_valid)
+                break
+        elif str(ret) == 'id_cancel':
+            break
+    UI.CloseDialog()
+    return res
 
 class YCreds:
     def __init__(self, creds, auto_krb5_creds=True):
@@ -114,7 +172,7 @@ class YCreds:
         out, _ = Popen(['klist'], stdout=PIPE, stderr=PIPE).communicate()
         m = re.findall(six.b('Default principal:\s*(\w+)@([\w\.]+)'), out)
         if len(m) == 0:
-            return None, None, None
+            return '', '', expired
         user, realm = m[0]
         return user, realm, expired
 

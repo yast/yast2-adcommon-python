@@ -11,11 +11,26 @@ from samba.credentials import Credentials
 from samba.dcerpc import nbt
 from shutil import which
 from samba import NTSTATUSError
+from tempfile import NamedTemporaryFile
+import os
+
+cldap_ret = None
+
+def __cldap_fill(dom):
+    global cldap_ret
+    if not cldap_ret or dom != cldap_ret.dns_domain:
+        net = Net(Credentials())
+        cldap_ret = net.finddc(domain=dom, flags=(nbt.NBT_SERVER_LDAP | nbt.NBT_SERVER_DS))
 
 def __validate_dom(dom):
-    net = Net(Credentials())
-    cldap_ret = net.finddc(domain=dom, flags=(nbt.NBT_SERVER_LDAP | nbt.NBT_SERVER_DS))
+    global cldap_ret
+    __cldap_fill(dom)
     return cldap_ret.dns_domain if cldap_ret else None
+
+def __pdc_dns_name(dom):
+    global cldap_ret
+    __cldap_fill(dom)
+    return cldap_ret.pdc_dns_name if cldap_ret else None
 
 def parse_username(username, domain=''):
     dom, user = (domain, username)
@@ -30,6 +45,16 @@ def __format_username(username, realm):
     cldap_dom = __validate_dom(dom)
     dom = cldap_dom if dom else dom
     return '%s@%s' % (user, dom.upper())
+
+def krb5_temp_conf(realm):
+    name = None
+    with NamedTemporaryFile(mode='w', delete=False) as k:
+        if os.path.exists('/etc/krb5.conf'):
+            k.write(open('/etc/krb5.conf', 'r').read())
+        k.write('\n[realms]\n%s = {\nkdc = %s\n}' % (realm.upper(), __pdc_dns_name(realm)))
+        k.flush()
+        name = k.name
+    return name
 
 def kinit_for_gssapi(creds, realm):
     p = Popen([which('kinit'), __format_username(creds.get_username(), realm)], stdin=PIPE, stdout=PIPE)

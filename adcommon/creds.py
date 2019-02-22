@@ -18,7 +18,7 @@ cldap_ret = None
 
 def __cldap_fill(dom):
     global cldap_ret
-    if not cldap_ret or dom != cldap_ret.dns_domain:
+    if not cldap_ret or not strcasecmp(dom, cldap_ret.dns_domain):
         net = Net(Credentials())
         cldap_ret = net.finddc(domain=dom, flags=(nbt.NBT_SERVER_LDAP | nbt.NBT_SERVER_DS | nbt.NBT_SERVER_WRITABLE))
 

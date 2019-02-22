@@ -108,7 +108,7 @@ def switch_domains(lp, creds, cred_valid):
                 __msg('The domain %s could not be found%s' % (UI.QueryWidget('domain', 'Value'), ' because:\n%s' % msg if msg else '.'))
             else:
                 lp.set('realm', dom.upper())
-                ycred = YCreds(creds, auto_krb5_creds=False)
+                ycred = YCreds(creds, auto_krb5_creds=False, possible_save_creds=False)
                 res = ycred.Show(cred_valid)
                 break
         elif str(ret) == 'id_cancel':
@@ -117,9 +117,10 @@ def switch_domains(lp, creds, cred_valid):
     return res
 
 class YCreds:
-    def __init__(self, creds, auto_krb5_creds=True):
+    def __init__(self, creds, auto_krb5_creds=True, possible_save_creds=True):
         self.creds = creds
         self.auto_krb5_creds = auto_krb5_creds
+        self.possible_save_creds = possible_save_creds
         self.retry = False
 
     def Show(self, cred_valid=None):
@@ -150,14 +151,16 @@ class YCreds:
                     if not dom:
                         dom = UI.QueryWidget('domain', 'Value')
                     password = UI.QueryWidget('password_prompt', 'Value')
-                    save = UI.QueryWidget('remember_prompt', 'Value')
+                    if self.possible_save_creds:
+                        save = UI.QueryWidget('remember_prompt', 'Value')
                     UI.CloseDialog()
                     if not password:
                         return False
-                    if save:
-                        self.__set_keyring(user, dom, password)
-                    else:
-                        self.__delete_keyring()
+                    if self.possible_save_creds:
+                        if save:
+                            self.__set_keyring(user, dom, password)
+                        else:
+                            self.__delete_keyring()
                     self.creds.set_username(user)
                     self.creds.set_password(password)
                     return True
@@ -239,7 +242,7 @@ class YCreds:
         return user, dom, password
 
     def __password_prompt(self, user):
-        user, dom, password = self.__get_keyring(user)
+        user, dom, password = self.__get_keyring(user) if self.possible_save_creds else (user, '', '')
         krb_selection = Empty()
         if self.auto_krb5_creds:
             krb_user, krb_realm, krb_expired = self.__recommend_user()
@@ -262,7 +265,7 @@ class YCreds:
                     HWeight(1, Left(Label('Domain:'))),
                     HWeight(4, Left(Label(Id('domain'), Opt('hstretch'), dom))),
                 ),
-                Left(CheckBox(Id('remember_prompt'), 'Remember my credentials', True if user and password else False)),
+                Left(CheckBox(Id('remember_prompt'), 'Remember my credentials', True if user and password else False)) if self.possible_save_creds else Empty(),
             )),
             krb_selection,
             Right(HBox(

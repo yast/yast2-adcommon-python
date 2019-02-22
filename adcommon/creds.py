@@ -107,9 +107,12 @@ def switch_domains(lp, creds, cred_valid):
             if not dom:
                 __msg('The domain %s could not be found%s' % (UI.QueryWidget('domain', 'Value'), ' because:\n%s' % msg if msg else '.'))
             else:
+                realm_back = lp.get('realm')
                 lp.set('realm', dom.upper())
                 ycred = YCreds(creds, auto_krb5_creds=False, possible_save_creds=False)
                 res = ycred.Show(cred_valid)
+                if not res:
+                    lp.set('realm', realm_back)
                 break
         elif str(ret) == 'id_cancel':
             break

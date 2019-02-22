@@ -7,11 +7,9 @@ from yast import ycpbuiltins, import_module
 import_module('UI')
 from yast import UI
 from samba.credentials import MUST_USE_KERBEROS
-from adcommon.creds import kinit_for_gssapi
+from adcommon.creds import kinit_for_gssapi, krb5_temp_conf, pdc_dns_name
 from adcommon.strings import strcmp
-from samba.net import Net
-from samba.dcerpc import nbt
-
+import os
 import six
 
 def y2error_dialog(msg):
@@ -90,14 +88,15 @@ class Ldap:
             return ''
 
     def __ldap_connect(self):
-        self.net = Net(creds=self.creds, lp=self.lp)
-        cldap_ret = self.net.finddc(domain=self.realm, flags=(nbt.NBT_SERVER_LDAP | nbt.NBT_SERVER_DS | nbt.NBT_SERVER_WRITABLE))
-        self.dc_hostname = cldap_ret.pdc_dns_name
+        self.dc_hostname = pdc_dns_name(self.realm)
+        os.environ['KRB5_CONFIG'] = krb5_temp_conf(self.realm)
         self.l = ldap.initialize('ldap://%s' % self.dc_hostname)
         if self.creds.get_kerberos_state() == MUST_USE_KERBEROS or kinit_for_gssapi(self.creds, self.realm):
             auth_tokens = ldap.sasl.gssapi('')
             self.l.sasl_interactive_bind_s('', auth_tokens)
+            os.unlink(os.environ['KRB5_CONFIG'])
         else:
+            os.unlink(os.environ['KRB5_CONFIG'])
             ycpbuiltins.y2error('Failed to initialize ldap connection')
             raise Exception('Failed to initialize ldap connection')
 

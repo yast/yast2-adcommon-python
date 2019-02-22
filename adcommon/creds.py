@@ -10,6 +10,27 @@ from samba.net import Net
 from samba.credentials import Credentials
 from samba.dcerpc import nbt
 from shutil import which
+from samba import NTSTATUSError
+from tempfile import NamedTemporaryFile
+import os
+
+cldap_ret = None
+
+def __cldap_fill(dom):
+    global cldap_ret
+    if not cldap_ret or not strcasecmp(dom, cldap_ret.dns_domain):
+        net = Net(Credentials())
+        cldap_ret = net.finddc(domain=dom, flags=(nbt.NBT_SERVER_LDAP | nbt.NBT_SERVER_DS | nbt.NBT_SERVER_WRITABLE))
+
+def __validate_dom(dom):
+    global cldap_ret
+    __cldap_fill(dom)
+    return cldap_ret.dns_domain if cldap_ret else None
+
+def pdc_dns_name(dom):
+    global cldap_ret
+    __cldap_fill(dom)
+    return cldap_ret.pdc_dns_name if cldap_ret else None
 
 def parse_username(username, domain=''):
     dom, user = (domain, username)
@@ -21,11 +42,19 @@ def parse_username(username, domain=''):
 
 def __format_username(username, realm):
     dom, user = parse_username(username, realm)
-    net = Net(Credentials())
-    cldap_ret = net.finddc(domain=dom, flags=(nbt.NBT_SERVER_LDAP | nbt.NBT_SERVER_DS))
-    if cldap_ret:
-        dom = cldap_ret.dns_domain
+    cldap_dom = __validate_dom(dom)
+    dom = cldap_dom if dom else dom
     return '%s@%s' % (user, dom.upper())
+
+def krb5_temp_conf(realm):
+    name = None
+    with NamedTemporaryFile(mode='w', delete=False) as k:
+        if os.path.exists('/etc/krb5.conf'):
+            k.write(open('/etc/krb5.conf', 'r').read())
+        k.write('\n[realms]\n%s = {\nkdc = %s\n}' % (realm.upper(), pdc_dns_name(realm)))
+        k.flush()
+        name = k.name
+    return name
 
 def kinit_for_gssapi(creds, realm):
     p = Popen([which('kinit'), __format_username(creds.get_username(), realm)], stdin=PIPE, stdout=PIPE)
@@ -33,10 +62,69 @@ def kinit_for_gssapi(creds, realm):
     p.stdin.flush()
     return p.wait() == 0
 
+def __msg(msg):
+    UI.OpenDialog(Opt('warncolor'), MinWidth(30, HBox(HSpacing(1), VBox(
+        VSpacing(0.5),
+        Label(msg),
+        VSpacing(0.5),
+        Right(PushButton(Id('id_ok'), 'OK')),
+        VSpacing(0.5),
+    ), HSpacing(1))))
+    UI.UserInput()
+    UI.CloseDialog()
+
+def switch_domains(lp, creds, cred_valid):
+    '''Change domains and set the new lp and creds
+    param LoadParm      Instance of samba LoadParm
+    param Credentials   Instance of samba Credentials
+    param condition     A function pointer to call which checks if the creds are valid
+    return bool
+    '''
+    UI.SetApplicationTitle('Change domain')
+    dialog = HBox(HSpacing(1), VBox(
+        VSpacing(0.5),
+        HBox(
+            HWeight(1, Left(Label('Domain:'))),
+            HWeight(4, Left(TextEntry(Id('domain'), Opt('hstretch'), lp.get('realm')))),
+        ),
+        VSpacing(0.5),
+        Right(HBox(
+            PushButton(Id('id_ok'), 'OK'),
+            PushButton(Id('id_cancel'), 'Cancel'),
+        )),
+        VSpacing(0.5),
+    ), HSpacing(1))
+    UI.OpenDialog(dialog)
+    res = False
+    while True:
+        ret = UI.UserInput()
+        if str(ret) == 'id_ok':
+            msg = ''
+            try:
+                dom = __validate_dom(UI.QueryWidget('domain', 'Value'))
+            except NTSTATUSError as e:
+                msg = e.args[-1]
+            if not dom:
+                __msg('The domain %s could not be found%s' % (UI.QueryWidget('domain', 'Value'), ' because:\n%s' % msg if msg else '.'))
+            else:
+                creds.set_password('')
+                realm_back = lp.get('realm')
+                lp.set('realm', dom.upper())
+                ycred = YCreds(creds, auto_krb5_creds=False, possible_save_creds=False)
+                res = ycred.Show(cred_valid)
+                if not res:
+                    lp.set('realm', realm_back)
+                break
+        elif str(ret) == 'id_cancel':
+            break
+    UI.CloseDialog()
+    return res
+
 class YCreds:
-    def __init__(self, creds, auto_krb5_creds=True):
+    def __init__(self, creds, auto_krb5_creds=True, possible_save_creds=True):
         self.creds = creds
         self.auto_krb5_creds = auto_krb5_creds
+        self.possible_save_creds = possible_save_creds
         self.retry = False
 
     def Show(self, cred_valid=None):
@@ -67,14 +155,16 @@ class YCreds:
                     if not dom:
                         dom = UI.QueryWidget('domain', 'Value')
                     password = UI.QueryWidget('password_prompt', 'Value')
-                    save = UI.QueryWidget('remember_prompt', 'Value')
+                    if self.possible_save_creds:
+                        save = UI.QueryWidget('remember_prompt', 'Value')
                     UI.CloseDialog()
                     if not password:
                         return False
-                    if save:
-                        self.__set_keyring(user, dom, password)
-                    else:
-                        self.__delete_keyring()
+                    if self.possible_save_creds:
+                        if save:
+                            self.__set_keyring(user, dom, password)
+                        else:
+                            self.__delete_keyring()
                     self.creds.set_username(user)
                     self.creds.set_password(password)
                     return True
@@ -114,7 +204,7 @@ class YCreds:
         out, _ = Popen(['klist'], stdout=PIPE, stderr=PIPE).communicate()
         m = re.findall(six.b('Default principal:\s*(\w+)@([\w\.]+)'), out)
         if len(m) == 0:
-            return None, None, None
+            return '', '', expired
         user, realm = m[0]
         return user, realm, expired
 
@@ -156,7 +246,7 @@ class YCreds:
         return user, dom, password
 
     def __password_prompt(self, user):
-        user, dom, password = self.__get_keyring(user)
+        user, dom, password = self.__get_keyring(user) if self.possible_save_creds else (user, '', '')
         krb_selection = Empty()
         if self.auto_krb5_creds:
             krb_user, krb_realm, krb_expired = self.__recommend_user()
@@ -179,7 +269,7 @@ class YCreds:
                     HWeight(1, Left(Label('Domain:'))),
                     HWeight(4, Left(Label(Id('domain'), Opt('hstretch'), dom))),
                 ),
-                Left(CheckBox(Id('remember_prompt'), 'Remember my credentials', True if user and password else False)),
+                Left(CheckBox(Id('remember_prompt'), 'Remember my credentials', True if user and password else False)) if self.possible_save_creds else Empty(),
             )),
             krb_selection,
             Right(HBox(

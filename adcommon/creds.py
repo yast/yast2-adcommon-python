@@ -20,14 +20,14 @@ def __cldap_fill(dom):
     global cldap_ret
     if not cldap_ret or dom != cldap_ret.dns_domain:
         net = Net(Credentials())
-        cldap_ret = net.finddc(domain=dom, flags=(nbt.NBT_SERVER_LDAP | nbt.NBT_SERVER_DS))
+        cldap_ret = net.finddc(domain=dom, flags=(nbt.NBT_SERVER_LDAP | nbt.NBT_SERVER_DS | nbt.NBT_SERVER_WRITABLE))
 
 def __validate_dom(dom):
     global cldap_ret
     __cldap_fill(dom)
     return cldap_ret.dns_domain if cldap_ret else None
 
-def __pdc_dns_name(dom):
+def pdc_dns_name(dom):
     global cldap_ret
     __cldap_fill(dom)
     return cldap_ret.pdc_dns_name if cldap_ret else None
@@ -51,7 +51,7 @@ def krb5_temp_conf(realm):
     with NamedTemporaryFile(mode='w', delete=False) as k:
         if os.path.exists('/etc/krb5.conf'):
             k.write(open('/etc/krb5.conf', 'r').read())
-        k.write('\n[realms]\n%s = {\nkdc = %s\n}' % (realm.upper(), __pdc_dns_name(realm)))
+        k.write('\n[realms]\n%s = {\nkdc = %s\n}' % (realm.upper(), pdc_dns_name(realm)))
         k.flush()
         name = k.name
     return name

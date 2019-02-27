@@ -5,7 +5,6 @@ from subprocess import Popen, PIPE
 from samba.credentials import Credentials, MUST_USE_KERBEROS
 import re, six
 from adcommon.strings import strcasecmp, strncasecmp
-import keyring
 from samba.net import Net
 from samba.credentials import Credentials
 from samba.dcerpc import nbt
@@ -125,6 +124,9 @@ class YCreds:
         self.creds = creds
         self.auto_krb5_creds = auto_krb5_creds
         self.possible_save_creds = possible_save_creds
+        # The QT UI conflicts with keyring's dbus somehow
+        if UI.HasSpecialWidget('Wizard'):
+            self.possible_save_creds = False
         self.retry = False
 
     def Show(self, cred_valid=None):
@@ -209,34 +211,37 @@ class YCreds:
         return user, realm, expired
 
     def __set_keyring(self, user, dom, password):
-        keyring.set_password('adcommon', 'username', user)
-        keyring.set_password('adcommon', 'domain', dom)
-        keyring.set_password('adcommon', user, password)
+        from keyring import set_password
+        set_password('adcommon', 'username', user)
+        set_password('adcommon', 'domain', dom)
+        set_password('adcommon', user, password)
 
     def __delete_keyring(self):
-        keyring_user = keyring.get_password('adcommon', 'username')
+        from keyring import get_password, delete_password, errors
+        keyring_user = get_password('adcommon', 'username')
         try:
-            keyring.delete_password('adcommon', 'username')
-        except keyring.errors.PasswordDeleteError:
+            delete_password('adcommon', 'username')
+        except errors.PasswordDeleteError:
             pass
         try:
-            keyring.delete_password('adcommon', 'domain')
-        except keyring.errors.PasswordDeleteError:
+            delete_password('adcommon', 'domain')
+        except errors.PasswordDeleteError:
             pass
         try:
-            keyring.delete_password('adcommon', keyring_user)
-        except keyring.errors.PasswordDeleteError:
+            delete_password('adcommon', keyring_user)
+        except errors.PasswordDeleteError:
             pass
 
     def __get_keyring(self, user):
+        from keyring import get_password
         dom = None
         password = None
-        keyring_user = keyring.get_password('adcommon', 'username')
+        keyring_user = get_password('adcommon', 'username')
         if keyring_user:
             user = keyring_user
         if user:
-            dom = keyring.get_password('adcommon', 'domain')
-            password = keyring.get_password('adcommon', user)
+            dom = get_password('adcommon', 'domain')
+            password = get_password('adcommon', user)
         if not user:
             user = ''
         if not password:

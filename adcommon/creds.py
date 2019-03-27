@@ -233,10 +233,13 @@ class YCreds:
             pass
 
     def __get_keyring(self, user):
-        from keyring import get_password
+        from keyring import get_password, errors
         dom = None
         password = None
-        keyring_user = get_password('adcommon', 'username')
+        try:
+            keyring_user = get_password('adcommon', 'username')
+        except errors.InitError:
+            return '', '', ''
         if keyring_user:
             user = keyring_user
         if user:

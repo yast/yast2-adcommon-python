@@ -238,8 +238,9 @@ class YCreds:
         password = None
         try:
             keyring_user = get_password('adcommon', 'username')
-        except errors.InitError:
-            return '', '', ''
+        except (errors.InitError, RuntimeError):
+            self.possible_save_creds = False
+            return (user, '', '')
         if keyring_user:
             user = keyring_user
         if user:

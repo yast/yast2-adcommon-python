@@ -11,6 +11,7 @@ from adcommon.creds import kinit_for_gssapi, krb5_temp_conf, pdc_dns_name
 from adcommon.strings import strcmp
 import os
 import six
+import ldapurl
 
 def y2error_dialog(msg):
     from yast import UI, Opt, HBox, HSpacing, VBox, VSpacing, Label, Right, PushButton, Id
@@ -65,10 +66,11 @@ def stringify_ldap(data):
         return data
 
 class Ldap:
-    def __init__(self, lp, creds):
+    def __init__(self, lp, creds, ldap_url=None):
         self.lp = lp
         self.creds = creds
         self.realm = lp.get('realm')
+        self.ldap_url = ldapurl.LDAPUrl(ldap_url) if ldap_url else None
         self.__ldap_connect()
 
     def __ldap_exc_msg(self, e):
@@ -90,7 +92,9 @@ class Ldap:
     def __ldap_connect(self):
         self.dc_hostname = pdc_dns_name(self.realm)
         os.environ['KRB5_CONFIG'] = krb5_temp_conf(self.realm)
-        self.l = ldap.initialize('ldap://%s' % self.dc_hostname)
+        if not self.ldap_url:
+            self.ldap_url = ldapurl.LDAPUrl('ldap://%s' % self.dc_hostname)
+        self.l = ldap.initialize(self.ldap_url.initializeUrl())
         if self.creds.get_kerberos_state() == MUST_USE_KERBEROS or kinit_for_gssapi(self.creds, self.realm):
             auth_tokens = ldap.sasl.gssapi('')
             self.l.sasl_interactive_bind_s('', auth_tokens)

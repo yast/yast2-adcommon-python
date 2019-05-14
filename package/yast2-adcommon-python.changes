@@ -1,4 +1,11 @@
 -------------------------------------------------------------------
+Tue May 14 21:29:17 UTC 2019 - dmulder@suse.com
+
+- Authentication fails with "Failed to initialize ldap connection";
+  (bsc#1135130);
+- 0.4
+
+-------------------------------------------------------------------
 Fri Apr 26 21:23:38 UTC 2019 - dmulder@suse.com
 
 - yast2-adcommon-python ldap doesn't correctly parse ldap urls for

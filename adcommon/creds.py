@@ -55,11 +55,24 @@ def krb5_temp_conf(realm):
         name = k.name
     return name
 
-def kinit_for_gssapi(creds, realm):
-    p = Popen([which('kinit'), __format_username(creds.get_username(), realm)], stdin=PIPE, stdout=PIPE)
+def kinit_for_gssapi_try(creds, realm):
+    p = Popen([which('kinit'), __format_username(creds.get_username(), realm)], stdin=PIPE, stdout=PIPE, stderr=PIPE)
     p.stdin.write(('%s\n' % creds.get_password()).encode())
     p.stdin.flush()
-    return p.wait() == 0
+    return p
+
+def kinit_for_gssapi(creds, realm):
+    p = kinit_for_gssapi_try(creds, realm)
+    _, err = p.communicate()
+    if p.returncode == 0:
+        return True
+    else:
+        m = re.match(r'kinit: Credential cache directory ([/\w]+) does not exist while getting default ccache', err.decode())
+        if m:
+            os.makedirs(m.group(1), exist_ok=True)
+            p = kinit_for_gssapi_try(creds, realm)
+            return p.wait() == 0
+    return False
 
 def __msg(msg):
     UI.OpenDialog(Opt('warncolor'), MinWidth(30, HBox(HSpacing(1), VBox(

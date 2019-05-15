@@ -240,10 +240,11 @@ class YCreds:
             delete_password('adcommon', 'domain')
         except errors.PasswordDeleteError:
             pass
-        try:
-            delete_password('adcommon', keyring_user)
-        except errors.PasswordDeleteError:
-            pass
+        if keyring_user is not None:
+            try:
+                delete_password('adcommon', keyring_user)
+            except errors.PasswordDeleteError:
+                pass
 
     def __get_keyring(self, user):
         from keyring import get_password, errors

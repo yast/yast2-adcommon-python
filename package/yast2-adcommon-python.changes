@@ -1,4 +1,11 @@
 -------------------------------------------------------------------
+Wed May 15 14:49:21 UTC 2019 - dmulder@suse.com
+
+- "TypeError: Expected a string or unicode object" during auth;
+  (bsc#1135224);
+- 0.5
+
+-------------------------------------------------------------------
 Tue May 14 21:29:17 UTC 2019 - dmulder@suse.com
 
 - Authentication fails with "Failed to initialize ldap connection";

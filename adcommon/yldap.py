@@ -240,6 +240,7 @@ class Ldap:
 
     def __constructed_attributes(self):
         # ADSI Hides constructed attributes, since they can't be modified.
+        # 1.2.840.113556.1.4.803 is the OID for LDAP_MATCHING_RULE_BIT_AND (we're and'ing 4 on systemFlags)
         search = '(&(systemFlags:1.2.840.113556.1.4.803:=4)(ObjectClass=attributeSchema))'
         container = 'CN=Schema,CN=Configuration,%s' % self.realm_dn
         ret = self.ldap_search(container, SCOPE_ONELEVEL, search, ['lDAPDisplayName'])
@@ -249,8 +250,10 @@ class Ldap:
         return str(datetime.strptime(val.decode(), '%Y%m%d%H%M%S.%fZ'))
 
     def __display_value_each(self, syntax, key, val):
+        # rfc4517 Generalized Time syntax
         if syntax == b'1.3.6.1.4.1.1466.115.121.1.24':
             return self.__timestamp(val)
+        # rfc4517 Octet String syntax
         if syntax == b'1.3.6.1.4.1.1466.115.121.1.40':
             if key == 'objectGUID':
                 return octet_string_to_objectGUID(val)

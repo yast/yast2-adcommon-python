@@ -203,9 +203,9 @@ class Ldap:
                 self.schema['attributeTypes'][name]['user-modifiable'] = b'NO-USER-MODIFICATION' not in m.group('info')
                 if b'USAGE' in m.group('info'):
                     usage = re.findall(b'.*\s+USAGE\s+(\w+)', m.group('info'))
-                    self.schema['attributeTypes'][name]['usage'] = usage[-1] if usage else 'userApplications'
+                    self.schema['attributeTypes'][name]['usage'] = usage[-1] if usage else b'userApplications'
                 else:
-                    self.schema['attributeTypes'][name]['usage'] = 'userApplications'
+                    self.schema['attributeTypes'][name]['usage'] = b'userApplications'
             else:
                 raise ldap.LDAPError('Failed to parse attributeType: %s' % attributeType.decode())
 

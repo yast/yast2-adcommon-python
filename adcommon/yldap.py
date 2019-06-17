@@ -12,6 +12,8 @@ from adcommon.strings import strcmp
 import os
 import six
 import ldapurl
+import binascii, struct, re
+from datetime import datetime
 
 def y2error_dialog(msg):
     from yast import UI, Opt, HBox, HSpacing, VBox, VSpacing, Label, Right, PushButton, Id
@@ -70,8 +72,11 @@ class Ldap:
         self.lp = lp
         self.creds = creds
         self.realm = lp.get('realm')
+        self.realm_dn = ','.join(['DC=%s' % part for part in self.realm.lower().split('.')])
         self.ldap_url = ldapurl.LDAPUrl(ldap_url) if ldap_url else None
         self.__ldap_connect()
+        self.schema = {}
+        self.__load_schema()
 
     def __ldap_exc_msg(self, e):
         if len(e.args) > 0 and \
@@ -175,3 +180,129 @@ class Ldap:
             ycpbuiltins.y2error(traceback.format_exc())
             ycpbuiltins.y2error('ldap.delete_s: %s\n' % self.__ldap_exc_msg(e))
 
+    def __find_inferior_classes(self, name):
+        dn = 'CN=Schema,CN=Configuration,%s' % self.realm_dn
+        search = '(|(possSuperiors=%s)(systemPossSuperiors=%s))' % (name, name)
+        return [item[-1]['lDAPDisplayName'][-1] for item in self.ldap_search_s(dn, SCOPE_SUBTREE, search, ['lDAPDisplayName'])]
+
+    def __load_schema(self):
+        dn = self.l.search_subschemasubentry_s()
+        results = self.l.read_subschemasubentry_s(dn)
+
+        self.schema['attributeTypes'] = {}
+        self.schema['constructedAttributes'] = self.__constructed_attributes()
+        for attributeType in results['attributeTypes']:
+            m = re.match(b'\(\s+(?P<id>[0-9\.]+)\s+NAME\s+\'(?P<name>[\-\w]+)\'\s+(SYNTAX\s+\'(?P<syntax>[0-9\.]+)\'\s+)?(?P<info>.*)\)', attributeType)
+            if m:
+                name = m.group('name')
+                self.schema['attributeTypes'][name] = {}
+                self.schema['attributeTypes'][name]['id'] = m.group('id')
+                self.schema['attributeTypes'][name]['syntax'] = m.group('syntax')
+                self.schema['attributeTypes'][name]['multi-valued'] = b'SINGLE-VALUE' not in m.group('info')
+                self.schema['attributeTypes'][name]['collective'] = b'COLLECTIVE' in m.group('info')
+                self.schema['attributeTypes'][name]['user-modifiable'] = b'NO-USER-MODIFICATION' not in m.group('info')
+                if b'USAGE' in m.group('info'):
+                    usage = re.findall(b'.*\s+USAGE\s+(\w+)', m.group('info'))
+                    self.schema['attributeTypes'][name]['usage'] = usage[-1] if usage else b'userApplications'
+                else:
+                    self.schema['attributeTypes'][name]['usage'] = b'userApplications'
+            else:
+                raise ldap.LDAPError('Failed to parse attributeType: %s' % attributeType.decode())
+
+        self.schema['objectClasses'] = {}
+        for objectClass in results['objectClasses']:
+            m = re.match(b'\(\s+(?P<id>[0-9\.]+)\s+NAME\s+\'(?P<name>[\-\w]+)\'\s+(SUP\s+(?P<superior>[\-\w]+)\s+)?(?P<type>\w+)\s+(MUST\s+\((?P<must>[^\)]*)\)\s+)?(MAY\s+\((?P<may>[^\)]*)\)\s+)?\)', objectClass)
+            if m:
+                name = m.group('name')
+                self.schema['objectClasses'][name] = {}
+                self.schema['objectClasses'][name]['id'] = m.group('id')
+                self.schema['objectClasses'][name]['superior'] = m.group('superior')
+                self.schema['objectClasses'][name]['inferior'] = self.__find_inferior_classes(name.decode())
+                self.schema['objectClasses'][name]['type'] = m.group('type')
+                self.schema['objectClasses'][name]['must'] = m.group('must').strip().split(b' $ ') if m.group('must') else []
+                self.schema['objectClasses'][name]['may'] = m.group('may').strip().split(b' $ ') if m.group('may') else []
+            else:
+                raise ldap.LDAPError('Failed to parse objectClass: %s' % objectClass.decode())
+
+        self.schema['dITContentRules'] = {}
+        for dITContentRule in results['dITContentRules']:
+            m = re.match(b'\(\s+(?P<id>[0-9\.]+)\s+NAME\s+\'(?P<name>[\-\w]+)\'\s*(AUX\s+\((?P<aux>[^\)]*)\))?\s*(MUST\s+\((?P<must>[^\)]*)\)\s+)?\s*(MAY\s+\((?P<may>[^\)]*)\))?\s*(NOT\s+\((?P<not>[^\)]*)\))?\s*\)', dITContentRule)
+            if m:
+                name = m.group('name')
+                self.schema['dITContentRules'][name] = {}
+                self.schema['dITContentRules'][name]['id'] = m.group('id')
+                self.schema['dITContentRules'][name]['must'] = m.group('must').strip().split(b' $ ') if m.group('must') else []
+                self.schema['dITContentRules'][name]['may'] = m.group('may').strip().split(b' $ ') if m.group('may') else []
+                self.schema['dITContentRules'][name]['aux'] = m.group('aux').strip().split(b' $ ') if m.group('aux') else []
+                self.schema['dITContentRules'][name]['not'] = m.group('not').strip().split(b' $ ') if m.group('not') else []
+            else:
+                raise ldap.LDAPError('Failed to parse dITContentRule: %s' % dITContentRule.decode())
+
+    def __constructed_attributes(self):
+        # ADSI Hides constructed attributes, since they can't be modified.
+        # 1.2.840.113556.1.4.803 is the OID for LDAP_MATCHING_RULE_BIT_AND (we're and'ing 4 on systemFlags)
+        search = '(&(systemFlags:1.2.840.113556.1.4.803:=4)(ObjectClass=attributeSchema))'
+        container = 'CN=Schema,CN=Configuration,%s' % self.realm_dn
+        ret = self.ldap_search(container, SCOPE_ONELEVEL, search, ['lDAPDisplayName'])
+        return [a[-1]['lDAPDisplayName'][-1] for a in ret]
+
+    def __timestamp(self, val):
+        return str(datetime.strptime(val.decode(), '%Y%m%d%H%M%S.%fZ'))
+
+    def __display_value_each(self, syntax, key, val):
+        # rfc4517 Generalized Time syntax
+        if syntax == b'1.3.6.1.4.1.1466.115.121.1.24':
+            return self.__timestamp(val)
+        # rfc4517 Octet String syntax
+        if syntax == b'1.3.6.1.4.1.1466.115.121.1.40':
+            if key == 'objectGUID':
+                return octet_string_to_objectGUID(val)
+            elif key == 'objectSid':
+                return octet_string_to_objectSid(val)
+            else:
+                return octet_string_to_hex(val)
+        return val
+
+    def display_schema_value(self, key, val):
+        if key.encode() in self.schema['attributeTypes']:
+            attr_type = self.schema['attributeTypes'][key.encode()]
+        else:
+            # RootDSE attributes don't show up in the schema, so we have to guess
+            if len(val) > 1: # multi-valued
+                return '; '.join([v.decode() for v in val])
+            return val[-1]
+        if val == None:
+            return '<not set>'
+        else:
+            if not attr_type['multi-valued']:
+                return self.__display_value_each(attr_type['syntax'], key, val[-1])
+            ret = []
+            for sval in val:
+                nval = self.__display_value_each(attr_type['syntax'], key, sval)
+                if isinstance(nval, six.binary_type):
+                    nval = nval.decode()
+                ret.append(nval)
+            return '; '.join(ret)
+
+def octet_string_to_hex(data):
+    return binascii.hexlify(data)
+
+def octet_string_to_objectGUID(data):
+    return '%s-%s-%s-%s-%s' % ('%02x' % struct.unpack('<L', data[0:4])[0],
+                               '%02x' % struct.unpack('<H', data[4:6])[0],
+                               '%02x' % struct.unpack('<H', data[6:8])[0],
+                               '%02x' % struct.unpack('>H', data[8:10])[0],
+                               '%02x%02x' % struct.unpack('>HL', data[10:]))
+
+def octet_string_to_objectSid(data):
+    if struct.unpack('B', chr(data[0]).encode())[0] == 1:
+        length = struct.unpack('B', chr(data[1]).encode())[0]-1
+        security_nt_authority = struct.unpack('>xxL', data[2:8])[0]
+        security_nt_non_unique = struct.unpack('<L', data[8:12])[0]
+        ret = 'S-1-%d-%d' % (security_nt_authority, security_nt_non_unique)
+        for i in range(length):
+            pos = 12+(i*4)
+            ret += '-%d' % struct.unpack('<L', data[pos:pos+4])
+        return ret
+    else:
+        return octet_string_to_hex(data)

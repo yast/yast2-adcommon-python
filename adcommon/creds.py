@@ -182,10 +182,13 @@ class YCreds:
                             self.__delete_keyring()
                     self.creds.set_username(user)
                     self.creds.set_password(password)
+                    if dom:
+                        self.creds.set_domain(dom)
                     return True
                 if str(subret) == 'krb_select':
                     user = UI.QueryWidget('krb_select', 'Label')[1:]
                     self.creds.set_username(user)
+                    self.creds.set_domain(UI.QueryWidget('krb_realm', 'Value'))
                     self.__validate_kinit()
                     if self.creds.get_kerberos_state() == MUST_USE_KERBEROS:
                         UI.CloseDialog()
@@ -278,7 +281,10 @@ class YCreds:
                     krb_selection = Frame('', VBox(
                         VSpacing(.5),
                         Left(PushButton(Id('krb_select'), Opt('hstretch', 'vstretch'), krb_user)),
-                        Left(Label(b'Domain: %s' % krb_realm))
+                        HBox(
+                            HWeight(1, Left(Label('Domain:'))),
+                            HWeight(4, Left(Label(Id('krb_realm'), Opt('hstretch'), krb_realm))),
+                        ),
                     ))
                 elif krb_user and krb_expired:
                     user = krb_user

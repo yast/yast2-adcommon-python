@@ -173,8 +173,6 @@ class YCreds:
                     if self.possible_save_creds:
                         save = UI.QueryWidget('remember_prompt', 'Value')
                     UI.CloseDialog()
-                    if not password:
-                        return False
                     if self.possible_save_creds:
                         if save:
                             self.__set_keyring(user, dom, password)
@@ -182,10 +180,13 @@ class YCreds:
                             self.__delete_keyring()
                     self.creds.set_username(user)
                     self.creds.set_password(password)
+                    if dom:
+                        self.creds.set_domain(dom)
                     return True
                 if str(subret) == 'krb_select':
                     user = UI.QueryWidget('krb_select', 'Label')[1:]
                     self.creds.set_username(user)
+                    self.creds.set_domain(UI.QueryWidget('krb_realm', 'Value'))
                     self.__validate_kinit()
                     if self.creds.get_kerberos_state() == MUST_USE_KERBEROS:
                         UI.CloseDialog()
@@ -278,13 +279,16 @@ class YCreds:
                     krb_selection = Frame('', VBox(
                         VSpacing(.5),
                         Left(PushButton(Id('krb_select'), Opt('hstretch', 'vstretch'), krb_user)),
-                        Left(Label(b'Domain: %s' % krb_realm))
+                        HBox(
+                            HWeight(1, Left(Label('Domain:'))),
+                            HWeight(4, Left(Label(Id('krb_realm'), Opt('hstretch'), krb_realm))),
+                        ),
                     ))
                 elif krb_user and krb_expired:
                     user = krb_user
         return MinWidth(30, HBox(HSpacing(1), VBox(
             VSpacing(.5),
-            Left(Label('To continue, type an administrator password')),
+            Left(Label('To continue, type an Active Directory administrator password')),
             Frame('', VBox(
                 Left(TextEntry(Id('username_prompt'), Opt('hstretch', 'notify'), 'Username', user)),
                 Left(Password(Id('password_prompt'), Opt('hstretch'), 'Password', password)),

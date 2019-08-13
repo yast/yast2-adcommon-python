@@ -97,7 +97,7 @@ def switch_domains(lp, creds, cred_valid):
         VSpacing(0.5),
         HBox(
             HWeight(1, Left(Label('Domain:'))),
-            HWeight(4, Left(TextEntry(Id('domain'), Opt('hstretch'), lp.get('realm')))),
+            HWeight(4, Left(TextEntry(Id('domain'), Opt('hstretch'), '', lp.get('realm')))),
         ),
         VSpacing(0.5),
         Right(HBox(

@@ -1,7 +1,6 @@
-import ldap, ldap.modlist, ldap.sasl
-from ldap.modlist import addModlist as addlist
-from ldap.modlist import modifyModlist as modlist
-from ldap import SCOPE_SUBTREE, SCOPE_ONELEVEL, SCOPE_BASE
+from samba import samdb
+from samba.auth import system_session
+from samba import ldb
 import traceback
 from yast import ycpbuiltins, import_module
 import_module('UI')
@@ -14,6 +13,18 @@ import six
 import ldapurl
 import binascii, struct, re
 from datetime import datetime
+SCOPE_BASE = ldb.SCOPE_BASE
+SCOPE_ONELEVEL = ldb.SCOPE_ONELEVEL
+SCOPE_SUBTREE = ldb.SCOPE_SUBTREE
+
+def addlist(attrs):
+    return attrs
+
+def modlist(old_attrs, new_attrs):
+    for key in old_attrs:
+        if key in new_attrs and old_attrs[key] == new_attrs[key]:
+            del new_attrs[key]
+    return new_attrs
 
 def y2error_dialog(msg):
     from yast import UI, Opt, HBox, HSpacing, VBox, VSpacing, Label, Right, PushButton, Id
@@ -67,7 +78,7 @@ def stringify_ldap(data):
     else:
         return data
 
-class Ldap:
+class Ldap(samdb.SamDB):
     def __init__(self, lp, creds, ldap_url=None):
         self.lp = lp
         self.creds = creds
@@ -96,72 +107,44 @@ class Ldap:
 
     def __ldap_connect(self):
         self.dc_hostname = pdc_dns_name(self.realm)
-        os.environ['KRB5_CONFIG'] = krb5_temp_conf(self.realm)
         if not self.ldap_url:
             self.ldap_url = ldapurl.LDAPUrl('ldap://%s' % self.dc_hostname)
-        self.l = ldap.initialize(self.ldap_url.initializeUrl())
-        if self.creds.get_kerberos_state() == MUST_USE_KERBEROS or kinit_for_gssapi(self.creds, self.realm):
-            auth_tokens = ldap.sasl.gssapi('')
-            self.l.sasl_interactive_bind_s('', auth_tokens)
-            os.unlink(os.environ['KRB5_CONFIG'])
-        else:
-            os.unlink(os.environ['KRB5_CONFIG'])
+        try:
+            super(Ldap, self).__init__(url=self.ldap_url.initializeUrl(), lp=self.lp,
+                                       credentials=self.creds, session_info=system_session())
+        except ldb.LdbError:
             ycpbuiltins.y2error('Failed to initialize ldap connection')
             raise Exception('Failed to initialize ldap connection')
 
     def ldap_search_s(self, *args):
+        return self.ldap_search(*args)
+
+    def ldap_search(self, base=None, scope=None, expression=None, attrs=None, controls=None):
         try:
-            try:
-                return self.l.search_s(*args)
-            except ldap.SERVER_DOWN:
-                self.__ldap_connect()
-                return self.l.search_s(*args)
-        except ldap.LDAPError as e:
+            attrs = [a.decode() if type(a) is six.binary_type else a for a in attrs]
+            return [(str(m.get('dn')), {k: [bytes(v) for v in m.get(k)] for k in m.keys() if k != 'dn'}) for m in self.search(base, scope, expression, attrs, controls)]
+        except ldb.LdbError as e:
             y2error_dialog(self.__ldap_exc_msg(e))
         except Exception as e:
             ycpbuiltins.y2error(traceback.format_exc())
             ycpbuiltins.y2error('ldap.search_s: %s\n' % self.__ldap_exc_msg(e))
 
-    def ldap_search(self, *args):
-        result = []
+    def ldap_add(self, dn, attrs):
         try:
-            try:
-                res_id = self.l.search(*args)
-            except ldap.SERVER_DOWN:
-                self.__ldap_connect()
-                res_id = self.l.search(*args)
-            while 1:
-                t, d = self.l.result(res_id, 0)
-                if d == []:
-                    break
-                else:
-                    if t == ldap.RES_SEARCH_ENTRY:
-                        result.append(d[0])
-        except ldap.LDAPError:
-            pass
-        except Exception as e:
-            ycpbuiltins.y2error(traceback.format_exc())
-            ycpbuiltins.y2error('ldap.search: %s\n' % self.__ldap_exc_msg(e))
-        return result
-
-    def ldap_add(self, *args):
-        try:
-            try:
-                return self.l.add_s(*args)
-            except ldap.SERVER_DOWN:
-                self.__ldap_connect()
-                return self.l.add_s(*args)
+            attrs['dn'] = dn
+            return self.add(attrs)
         except Exception as e:
             raise LdapException(self.__ldap_exc_msg(e), self.__ldap_exc_info(e))
 
-    def ldap_modify(self, *args):
+    def ldap_modify(self, dn, attrs):
+        # Check to see if it's an ldap message instead of key/value pairs
+        if type(attrs) != dict:
+            # Convert the ldap message into key/value pair strings, ignoring old values
+            attrs = {m[1].decode() if type(m[1]) is six.binary_type else m[1]: m[2].decode() if type(m[2]) is six.binary_type else str(m[2]) for m in attrs if m[0] == 0}
         try:
-            try:
-                return self.l.modify(*args)
-            except ldap.SERVER_DOWN:
-                self.__ldap_connect()
-                return self.l.modify(*args)
-        except ldap.LDAPError as e:
+            attrs['dn'] = dn
+            return self.modify(ldb.Message.from_dict(self, attrs))
+        except ldb.LdbError as e:
             y2error_dialog(self.__ldap_exc_msg(e))
         except Exception as e:
             ycpbuiltins.y2error(traceback.format_exc())
@@ -169,25 +152,21 @@ class Ldap:
 
     def ldap_delete(self, *args):
         try:
-            try:
-                return self.l.delete_s(*args)
-            except ldap.SERVER_DOWN:
-                self.__ldap_connect()
-                return self.l.delete_s(*args)
-        except ldap.LDAPError as e:
+            return self.delete(*args)
+        except ldb.LdbError as e:
             y2error_dialog(self.__ldap_exc_msg(e))
         except Exception as e:
             ycpbuiltins.y2error(traceback.format_exc())
             ycpbuiltins.y2error('ldap.delete_s: %s\n' % self.__ldap_exc_msg(e))
 
     def __find_inferior_classes(self, name):
-        dn = 'CN=Schema,CN=Configuration,%s' % self.realm_dn
+        dn = self.get_schema_basedn()
         search = '(|(possSuperiors=%s)(systemPossSuperiors=%s))' % (name, name)
         return [item[-1]['lDAPDisplayName'][-1] for item in self.ldap_search_s(dn, SCOPE_SUBTREE, search, ['lDAPDisplayName'])]
 
     def __load_schema(self):
-        dn = self.l.search_subschemasubentry_s()
-        results = self.l.read_subschemasubentry_s(dn)
+        dn = str(self.search('', SCOPE_BASE, '(objectclass=*)', ['subschemaSubentry'])[0]['subschemaSubentry'])
+        results = self.search(dn, SCOPE_BASE, '(objectclass=*)', ['attributeTypes', 'dITStructureRules', 'objectClasses', 'nameForms', 'dITContentRules', 'matchingRules', 'ldapSyntaxes', 'matchingRuleUse'])[0]
 
         self.schema['attributeTypes'] = {}
         self.schema['constructedAttributes'] = self.__constructed_attributes()
@@ -242,7 +221,7 @@ class Ldap:
         # ADSI Hides constructed attributes, since they can't be modified.
         # 1.2.840.113556.1.4.803 is the OID for LDAP_MATCHING_RULE_BIT_AND (we're and'ing 4 on systemFlags)
         search = '(&(systemFlags:1.2.840.113556.1.4.803:=4)(ObjectClass=attributeSchema))'
-        container = 'CN=Schema,CN=Configuration,%s' % self.realm_dn
+        container = self.get_schema_basedn()
         ret = self.ldap_search(container, SCOPE_ONELEVEL, search, ['lDAPDisplayName'])
         return [a[-1]['lDAPDisplayName'][-1] for a in ret]
 

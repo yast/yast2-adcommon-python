@@ -87,6 +87,9 @@ class Ldap(samdb.SamDB):
         self.realm_dn = ','.join(['DC=%s' % part for part in self.realm.lower().split('.')])
         self.ldap_url = ldapurl.LDAPUrl(ldap_url) if ldap_url else None
         self.__ldap_connect()
+        # Ugly Hack: Make the ldap module backwards compatible with modules that
+        # called functions of l (the python ldap code).
+        self.l = self
         self.net = Net(creds=self.creds, lp=self.lp)
         self.schema = {}
         self.__load_schema()
@@ -160,6 +163,9 @@ class Ldap(samdb.SamDB):
         except Exception as e:
             ycpbuiltins.y2error(traceback.format_exc())
             ycpbuiltins.y2error('ldap.delete_s: %s\n' % self.__ldap_exc_msg(e))
+
+    def rename_s(self, dn, newrdn, newsuperior):
+        super(Ldap, self).rename(dn, '%s,%s' % (newrdn, newsuperior))
 
     def __find_inferior_classes(self, name):
         dn = self.get_schema_basedn()

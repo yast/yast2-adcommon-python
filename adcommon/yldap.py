@@ -8,6 +8,7 @@ from yast import UI
 from samba.credentials import MUST_USE_KERBEROS
 from adcommon.creds import kinit_for_gssapi, krb5_temp_conf, pdc_dns_name
 from adcommon.strings import strcmp
+from samba.net import Net
 import os
 import six
 import ldapurl
@@ -86,6 +87,7 @@ class Ldap(samdb.SamDB):
         self.realm_dn = ','.join(['DC=%s' % part for part in self.realm.lower().split('.')])
         self.ldap_url = ldapurl.LDAPUrl(ldap_url) if ldap_url else None
         self.__ldap_connect()
+        self.net = Net(creds=self.creds, lp=self.lp)
         self.schema = {}
         self.__load_schema()
 

@@ -28,6 +28,7 @@ BuildArch:      noarch
 Requires:       krb5-client
 Requires:       samba-client
 Requires:       samba-python3
+Requires:       samba-ad-dc
 Requires:       yast2
 Requires:       yast2-python3-bindings >= 4.0.0
 Requires:       python3-ldb

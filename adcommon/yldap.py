@@ -114,6 +114,8 @@ class Ldap(samdb.SamDB):
         self.dc_hostname = pdc_dns_name(self.realm)
         if not self.ldap_url:
             self.ldap_url = ldapurl.LDAPUrl('ldap://%s' % self.dc_hostname)
+        if self.creds.get_kerberos_state() != MUST_USE_KERBEROS:
+            kinit_for_gssapi(self.creds, self.realm)
         try:
             super(Ldap, self).__init__(url=self.ldap_url.initializeUrl(), lp=self.lp,
                                        credentials=self.creds, session_info=system_session())

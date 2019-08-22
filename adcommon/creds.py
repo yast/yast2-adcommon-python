@@ -203,6 +203,10 @@ class YCreds:
 
     def __validate_kinit(self):
         out, _ = Popen(['klist'], stdout=PIPE, stderr=PIPE).communicate()
+        m = re.findall(six.b('Ticket cache:\s*(.*)'), out)
+        if len(m) != 1:
+            return None
+        self.creds.set_named_ccache(m[0].decode())
         m = re.findall(six.b('Default principal:\s*(\w+)@([\w\.]+)'), out)
         if len(m) == 0:
             return None

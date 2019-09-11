@@ -17,7 +17,7 @@
 
 
 Name:           yast2-adcommon-python
-Version:        1.0
+Version:        1.1
 Release:        0
 Summary:        Common code for the yast python ad modules
 License:        GPL-3.0+

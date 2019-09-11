@@ -123,13 +123,26 @@ class Ldap(samdb.SamDB):
             ycpbuiltins.y2error('Failed to initialize ldap connection')
             raise Exception('Failed to initialize ldap connection')
 
+    def __ldap_disconnect(self, e):
+        if e.args[0] == ldb.ERR_OPERATIONS_ERROR and \
+          ('connection to remote LDAP server dropped' in e.args[1] or 'NT_STATUS_CONNECTION_RESET' in e.args[1]):
+            return True
+        return False
+
     def ldap_search_s(self, *args):
         return self.ldap_search(*args)
 
     def ldap_search(self, base=None, scope=None, expression=None, attrs=None, controls=None):
         try:
             attrs = [a.decode() if type(a) is six.binary_type else a for a in attrs]
-            return [(str(m.get('dn')), {k: [bytes(v) for v in m.get(k)] for k in m.keys() if k != 'dn'}) for m in self.search(base, scope, expression, attrs, controls)]
+            try:
+                return [(str(m.get('dn')), {k: [bytes(v) for v in m.get(k)] for k in m.keys() if k != 'dn'}) for m in self.search(base, scope, expression, attrs, controls)]
+            except ldb.LdbError as e:
+                if self.__ldap_disconnect(e):
+                    self.__ldap_connect()
+                    return [(str(m.get('dn')), {k: [bytes(v) for v in m.get(k)] for k in m.keys() if k != 'dn'}) for m in self.search(base, scope, expression, attrs, controls)]
+                else:
+                    raise
         except ldb.LdbError as e:
             y2error_dialog(self.__ldap_exc_msg(e))
         except Exception as e:
@@ -139,7 +152,14 @@ class Ldap(samdb.SamDB):
     def ldap_add(self, dn, attrs):
         try:
             attrs['dn'] = dn
-            return self.add(attrs)
+            try:
+                return self.add(attrs)
+            except ldb.LdbError as e:
+                if self.__ldap_disconnect(e):
+                    self.__ldap_connect()
+                    return self.add(attrs)
+                else:
+                    raise
         except Exception as e:
             raise LdapException(self.__ldap_exc_msg(e), self.__ldap_exc_info(e))
 
@@ -150,7 +170,14 @@ class Ldap(samdb.SamDB):
             attrs = {m[1].decode() if type(m[1]) is six.binary_type else m[1]: m[2].decode() if type(m[2]) is six.binary_type else str(m[2]) for m in attrs if m[0] == 0}
         try:
             attrs['dn'] = dn
-            return self.modify(ldb.Message.from_dict(self, attrs))
+            try:
+                return self.modify(ldb.Message.from_dict(self, attrs))
+            except ldb.LdbError as e:
+                if self.__ldap_disconnect(e):
+                    self.__ldap_connect()
+                    return self.modify(ldb.Message.from_dict(self, attrs))
+                else:
+                    raise
         except ldb.LdbError as e:
             y2error_dialog(self.__ldap_exc_msg(e))
         except Exception as e:
@@ -159,7 +186,14 @@ class Ldap(samdb.SamDB):
 
     def ldap_delete(self, *args):
         try:
-            return self.delete(*args)
+            try:
+                return self.delete(*args)
+            except ldb.LdbError as e:
+                if self.__ldap_disconnect(e):
+                    self.__ldap_connect()
+                    return self.delete(*args)
+                else:
+                    raise
         except ldb.LdbError as e:
             y2error_dialog(self.__ldap_exc_msg(e))
         except Exception as e:
@@ -167,7 +201,20 @@ class Ldap(samdb.SamDB):
             ycpbuiltins.y2error('ldap.delete_s: %s\n' % self.__ldap_exc_msg(e))
 
     def rename_s(self, dn, newrdn, newsuperior):
-        super(Ldap, self).rename(dn, '%s,%s' % (newrdn, newsuperior))
+        try:
+            try:
+                super(Ldap, self).rename(dn, '%s,%s' % (newrdn, newsuperior))
+            except ldb.LdbError as e:
+                if self.__ldap_disconnect(e):
+                    self.__ldap_connect()
+                    super(Ldap, self).rename(dn, '%s,%s' % (newrdn, newsuperior))
+                else:
+                    raise
+        except ldb.LdbError as e:
+            y2error_dialog(self.__ldap_exc_msg(e))
+        except Exception as e:
+            ycpbuiltins.y2error(traceback.format_exc())
+            ycpbuiltins.y2error('ldap.rename: %s\n' % self.__ldap_exc_msg(e))
 
     def __find_inferior_classes(self, name):
         dn = self.get_schema_basedn()

@@ -298,7 +298,7 @@ class YCreds:
                 Left(Password(Id('password_prompt'), Opt('hstretch'), 'Password', password)),
                 HBox(
                     HWeight(1, Left(Label('Domain:'))),
-                    HWeight(4, Left(Label(Id('domain'), Opt('hstretch'), dom))),
+                    HWeight(4, Left(TextEntry(Id('domain'), Opt('hstretch'), '', dom))),
                 ),
                 Left(CheckBox(Id('remember_prompt'), 'Remember my credentials', True if user and password else False)) if self.possible_save_creds else Empty(),
             )),

@@ -17,7 +17,7 @@
 
 
 Name:           yast2-adcommon-python
-Version:        1.1
+Version:        1.2
 Release:        0
 Summary:        Common code for the yast python ad modules
 License:        GPL-3.0+
@@ -32,7 +32,9 @@ Requires:       samba-ad-dc
 Requires:       yast2
 Requires:       yast2-python3-bindings >= 4.0.0
 Requires:       python3-ldb
+Requires:       python3-ldap
 Requires:       python3-keyring
+Requires:	samba-dsdb-modules
 BuildRequires:	python3
 BuildRequires:	python3-setuptools
 

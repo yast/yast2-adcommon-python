@@ -221,6 +221,11 @@ class Ldap(samdb.SamDB):
         search = '(|(possSuperiors=%s)(systemPossSuperiors=%s))' % (name, name)
         return [item[-1]['lDAPDisplayName'][-1] for item in self.ldap_search_s(dn, SCOPE_SUBTREE, search, ['lDAPDisplayName'])]
 
+    def schema_request_inferior_classes(self, name):
+        if not self.schema['objectClasses'][name]['inferior']:
+            self.schema['objectClasses'][name]['inferior'] = self.__find_inferior_classes(name.decode())
+        return self.schema['objectClasses'][name]['inferior']
+
     def __load_schema(self):
         dn = str(self.search('', SCOPE_BASE, '(objectclass=*)', ['subschemaSubentry'])[0]['subschemaSubentry'])
         results = self.search(dn, SCOPE_BASE, '(objectclass=*)', ['attributeTypes', 'dITStructureRules', 'objectClasses', 'nameForms', 'dITContentRules', 'matchingRules', 'ldapSyntaxes', 'matchingRuleUse'])[0]
@@ -253,7 +258,9 @@ class Ldap(samdb.SamDB):
                 self.schema['objectClasses'][name] = {}
                 self.schema['objectClasses'][name]['id'] = m.group('id')
                 self.schema['objectClasses'][name]['superior'] = m.group('superior')
-                self.schema['objectClasses'][name]['inferior'] = self.__find_inferior_classes(name.decode())
+                # Inferior classes should be loaded on-demand,
+                # otherwise this causes significant startup delays
+                self.schema['objectClasses'][name]['inferior'] = None
                 self.schema['objectClasses'][name]['type'] = m.group('type')
                 self.schema['objectClasses'][name]['must'] = m.group('must').strip().split(b' $ ') if m.group('must') else []
                 self.schema['objectClasses'][name]['may'] = m.group('may').strip().split(b' $ ') if m.group('may') else []

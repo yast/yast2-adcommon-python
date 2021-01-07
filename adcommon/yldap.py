@@ -1,4 +1,4 @@
-from samba import samdb
+from samba import Ldb
 from samba.auth import system_session
 from samba import ldb
 import traceback
@@ -79,7 +79,7 @@ def stringify_ldap(data):
     else:
         return data
 
-class Ldap(samdb.SamDB):
+class Ldap(Ldb):
     def __init__(self, lp, creds, ldap_url=None):
         self.lp = lp
         self.creds = creds

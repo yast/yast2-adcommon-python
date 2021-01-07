@@ -17,18 +17,17 @@
 
 
 Name:           yast2-adcommon-python
-Version:        1.5
+Version:        1.6
 Release:        0
 Summary:        Common code for the yast python ad modules
 License:        GPL-3.0+
 Group:          Productivity/Networking/Samba
-Url:            https://github.com/dmulder/yast2-adcommon-python
+Url:            https://github.com/yast/yast2-adcommon-python
 Source:         %{name}-%{version}.tar.bz2
 BuildArch:      noarch
 Requires:       krb5-client
 Requires:       samba-client
 Requires:       samba-python3
-Requires:       samba-ad-dc
 Requires:       yast2
 Requires:       yast2-python3-bindings >= 4.0.0
 Requires:       python3-ldb
